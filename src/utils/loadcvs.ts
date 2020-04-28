@@ -19,7 +19,7 @@ async function loadCSV(filePath: string): Promise<CSVFileLinesToImportDTO[]> {
 
   const parseCSV = readCSVStream.pipe(parseStream);
 
-  const lines: CSVFileLinesToImportDTO[] = [];
+  const lines: string[][] = [];
 
   parseCSV.on('data', line => {
     lines.push(line);
@@ -32,12 +32,12 @@ async function loadCSV(filePath: string): Promise<CSVFileLinesToImportDTO[]> {
   const linesToImport: CSVFileLinesToImportDTO[] = [];
 
   lines.forEach(line => {
-    const { title, type, value, category } = line;
+    const [title, typeString, value, category] = line;
 
     linesToImport.push({
       title,
-      type,
-      value,
+      type: typeString as 'income' | 'outcome',
+      value: parseInt(value, 10),
       category,
     });
   });

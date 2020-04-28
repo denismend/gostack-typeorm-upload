@@ -1,26 +1,20 @@
 import path from 'path';
 import fs from 'fs';
-import { getCustomRepository, getRepository } from 'typeorm';
+import { getCustomRepository, In } from 'typeorm';
 
 import upload from '../config/upload';
 import loadCSV from '../utils/loadcvs';
 
 import Transaction from '../models/Transaction';
-import Category from '../models/Category';
 import TransactionsRepository from '../repositories/TransactionsRepository';
-
-interface CsvImportToTransactionDTO {
-  title: string;
-  value: number;
-  type: 'income' | 'outcome';
-  category: string;
-}
+import CategoriesRepository from '../repositories/CategoriesRepository';
+import Category from '../models/Category';
 
 interface TransactionDTO {
   title: string;
   value: number;
   type: 'income' | 'outcome';
-  category: Category;
+  category_id: string;
 }
 
 class ImportTransactionsService {
@@ -30,40 +24,61 @@ class ImportTransactionsService {
     const linesToImportInTransactions = await loadCSV(filePath);
 
     const transactionsRepository = getCustomRepository(TransactionsRepository);
-    const categoryRepository = getRepository(Category);
+    const categoriesRepository = getCustomRepository(CategoriesRepository);
 
-    const categoriesAlreadyExists: Category[] = await categoryRepository.find();
+    const transactions: TransactionDTO[] = [];
+    const categories: string[] = [];
 
-    const transactionsObjToCreate: TransactionDTO[] = [];
+    linesToImportInTransactions.forEach(line => {
+      const { title, value, type, category } = line;
 
-    linesToImportInTransactions.forEach(async lineToImport => {
-      let categoryExist = categoriesAlreadyExists.find(category => {
-        return category.title === lineToImport.category;
+      transactions.push({
+        title,
+        value,
+        type,
+        category_id: category,
       });
 
-      if (!categoryExist) {
-        const newCategory = categoryRepository.create({
-          title: lineToImport.category,
-        });
-
-        categoryExist = await categoryRepository.save(newCategory);
-      }
-
-      transactionsObjToCreate.push({
-        title: lineToImport.title,
-        type: lineToImport.type,
-        value: lineToImport.value,
-        category: categoryExist,
-      });
+      categories.push(line.category);
     });
 
-    const transactions = transactionsRepository.create(transactionsObjToCreate);
+    const existentCategories = await categoriesRepository.find({
+      where: {
+        title: In(categories),
+      },
+    });
 
-    await transactionsRepository.save(transactions);
+    const existentCategoriesTitles = existentCategories.map(
+      (category: Category) => category.title,
+    );
+
+    const newCategories = categories
+      .filter(category => !existentCategoriesTitles.includes(category))
+      .filter((value, index, self) => self.indexOf(value) === index)
+      .map(category => {
+        return { title: category };
+      });
+
+    await categoriesRepository.save(newCategories);
+
+    const finalCategories = [...newCategories, ...existentCategories];
+
+    const createdTransactions = transactionsRepository.create(
+      transactions.map(transaction => ({
+        title: transaction.title,
+        type: transaction.type,
+        value: transaction.value,
+        category: finalCategories.find(
+          category => category.title === transaction.category_id,
+        ),
+      })),
+    );
+
+    await transactionsRepository.save(createdTransactions);
 
     await fs.promises.unlink(filePath);
 
-    return transactions;
+    return createdTransactions;
   }
 }
 

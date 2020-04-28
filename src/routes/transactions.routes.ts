@@ -52,9 +52,11 @@ transactionsRouter.post(
   async (request, response) => {
     const importTransactionFromCvs = new ImportTransactionsService();
 
-    await importTransactionFromCvs.execute(request.file.filename);
+    const transactions = await importTransactionFromCvs.execute(
+      request.file.filename,
+    );
 
-    return response.json();
+    return response.json(transactions);
   },
 );
 
